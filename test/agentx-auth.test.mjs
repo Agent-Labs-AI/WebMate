@@ -62,7 +62,7 @@ const CLIENT_ID = 'agentx-workmate';
 const TOKEN_ENDPOINT = `${ISSUER}/protocol/openid-connect/token`;
 const CONFIG = Object.freeze({
   keysBaseUrl: 'https://agentx.astralx.com.vn/keys',
-  litellmBaseUrl: 'https://aigw.dev-server.cloud/v1',
+  litellmBaseUrl: 'https://aigw.astralx.com.vn/v1',
   oidcIssuer: ISSUER,
   oidcClientId: CLIENT_ID,
   oidcScopes: 'openid profile email',
@@ -206,8 +206,8 @@ function test(name, fn) {
 
 test('runtime URLs are normalized and reject unsafe credentials', () => {
   assert.equal(
-    normalizeHttpsBaseUrl('https://aigw.dev-server.cloud/', 'gateway', { openAiCompatible: true }),
-    'https://aigw.dev-server.cloud/v1',
+    normalizeHttpsBaseUrl('https://aigw.astralx.com.vn/', 'gateway', { openAiCompatible: true }),
+    'https://aigw.astralx.com.vn/v1',
   );
   assert.throws(
     () => normalizeHttpsBaseUrl('https://user:secret@example.test', 'gateway'),
@@ -333,7 +333,7 @@ test('authorization code + PKCE uses ID token and provisions the configured gate
         key: 'sk-new-secret',
         key_alias: 'agentx-kien',
         token: 'handle-1',
-        base_url: 'https://aigw.dev-server.cloud/',
+        base_url: 'https://aigw.astralx.com.vn/',
         models: ['model-a', 'model-b'],
         default_model: 'model-a',
         status: 'issued',
@@ -546,7 +546,7 @@ test('the chat picker is the key service chat list, as far as LiteLLM serves it'
       modelKeyRequestBody = JSON.parse(init.body);
       return jsonResponse({
         key: 'sk-legacy-key',
-        base_url: 'https://aigw.dev-server.cloud',
+        base_url: 'https://aigw.astralx.com.vn',
         models: ['hard-coded-external-model', 'model-secondary'],
         default_model: 'hard-coded-external-model',
         status: 'reused',
@@ -582,7 +582,7 @@ test('the chat picker is the key service chat list, as far as LiteLLM serves it'
 
 const ROLE_KEY_BODY = Object.freeze({
   key: 'sk-role-key',
-  base_url: 'https://aigw.dev-server.cloud',
+  base_url: 'https://aigw.astralx.com.vn',
   models: ['MiniMax/MiniMax-M3', 'Qwen/Qwen3.5-122B-A10B-FP8'],
   default_model: 'MiniMax/MiniMax-M3',
   web_search_model: 'perplexity/sonar',
@@ -804,7 +804,7 @@ test('an install from v1.0.12 keeps its key, device and session on the shipped c
       version: 1,
       records: [credential({
         authority: 'https://agentx.astralx.com.vn/keys',
-        baseUrl: 'https://aigw.dev-server.cloud/v1',
+        baseUrl: 'https://aigw.astralx.com.vn/v1',
         serviceModels: ['model-a'],
         featureModels: [],
         reachableModels: ['model-a'],
@@ -820,7 +820,7 @@ test('an install from v1.0.12 keeps its key, device and session on the shipped c
     fetchImpl: async (url, init = {}) => {
       const href = String(url);
       requests.push({ href, method: init.method || 'GET', headers: init.headers || {} });
-      if (href === 'https://aigw.dev-server.cloud/v1/models') {
+      if (href === 'https://aigw.astralx.com.vn/v1/models') {
         return jsonResponse({ data: [{ id: 'model-a' }] });
       }
       if (href === 'https://agentx.astralx.com.vn/keys/v1/license') {
@@ -842,7 +842,7 @@ test('an install from v1.0.12 keeps its key, device and session on the shipped c
   assert.deepEqual(
     requests.map(({ method, href }) => `${method} ${href}`),
     [
-      'GET https://aigw.dev-server.cloud/v1/models',
+      'GET https://aigw.astralx.com.vn/v1/models',
       'GET https://agentx.astralx.com.vn/keys/v1/license',
     ],
     'only the gateway probe and the license check; never /v1/model-key, never the identity provider',
@@ -895,7 +895,7 @@ test('a rejected cached key fetches current key with rotate false', async () => 
     requestBody = JSON.parse(init.body);
     return jsonResponse({
       key: 'sk-current-secret',
-      base_url: 'https://aigw.dev-server.cloud',
+      base_url: 'https://aigw.astralx.com.vn',
       models: ['model-b'],
       default_model: 'model-b',
       status: 'reused',
@@ -920,6 +920,71 @@ test('transient gateway failure retains the usable cached key', async () => {
   assert.equal(result.credential.key, cached.key);
   assert.equal(result.credential.provisionOutcome, 'stale-offline');
   assert.equal(fake.values[AGENTX_CREDENTIAL_STORAGE_KEY].records[0].key, cached.key);
+});
+
+test('a gateway that moved is found at the key service, keeping the chosen model', async () => {
+  const movedTo = 'https://aigw.moved.example/v1';
+  const cached = credential({
+    baseUrl: 'https://aigw.dev-server.cloud/v1',
+    model: 'model-b',
+    models: ['model-a', 'model-b'],
+  });
+  const fake = createApi({
+    [AGENTX_SESSION_STORAGE_KEY]: session(),
+    [AGENTX_CREDENTIAL_STORAGE_KEY]: { version: 1, records: [cached] },
+  });
+  const requests = [];
+  const result = await service(fake.api, async (url) => {
+    const href = String(url);
+    requests.push(href);
+    if (href.startsWith('https://aigw.dev-server.cloud/')) throw new TypeError('Failed to fetch');
+    if (href === `${movedTo}/models`) {
+      return jsonResponse({ data: [{ id: 'model-a' }, { id: 'model-b' }] });
+    }
+    return jsonResponse({
+      key: cached.key,
+      base_url: 'https://aigw.moved.example',
+      models: ['model-a', 'model-b'],
+      default_model: 'model-a',
+      status: 'reused',
+    });
+  }).retryProvision();
+  assert.equal(result.credential.baseUrl, movedTo);
+  assert.equal(result.credential.key, cached.key);
+  assert.equal(result.credential.model, 'model-b');
+  assert.equal(result.credential.provisionOutcome, 'reused');
+  assert.equal(requests[0], 'https://aigw.dev-server.cloud/v1/models');
+  assert.equal(fake.values[AGENTX_CREDENTIAL_STORAGE_KEY].records[0].baseUrl, movedTo);
+});
+
+test('an unreachable gateway and an unreachable key service keep the cached key', async () => {
+  const cached = credential();
+  const fake = createApi({
+    [AGENTX_SESSION_STORAGE_KEY]: session(),
+    [AGENTX_CREDENTIAL_STORAGE_KEY]: { version: 1, records: [cached] },
+  });
+  const result = await service(fake.api, async () => {
+    throw new TypeError('Failed to fetch');
+  }).retryProvision();
+  assert.equal(result.credential.key, cached.key);
+  assert.equal(result.credential.baseUrl, cached.baseUrl);
+  assert.equal(result.credential.provisionOutcome, 'stale-offline');
+  assert.equal(fake.values[AGENTX_CREDENTIAL_STORAGE_KEY].records[0].baseUrl, cached.baseUrl);
+});
+
+test('an unreachable gateway still honours a license refusal from the key service', async () => {
+  const cached = credential();
+  const fake = createApi({
+    [AGENTX_SESSION_STORAGE_KEY]: session(),
+    [AGENTX_CREDENTIAL_STORAGE_KEY]: { version: 1, records: [cached] },
+  });
+  await assert.rejects(
+    () => service(fake.api, async (url) => {
+      if (String(url).endsWith('/models')) throw new TypeError('Failed to fetch');
+      return jsonResponse({ error: 'license_expired' }, 403);
+    }).retryProvision(),
+    (error) => error.code === 'license_expired',
+  );
 });
 
 test('an authoritative empty gateway model list never falls back to a stale cached model', async () => {
@@ -1073,7 +1138,7 @@ test('settings controller installs the key and persists a valid model selection'
   const markup = controller.render();
   assert.doesNotMatch(markup, /sk-existing-secret/);
   assert.doesNotMatch(markup, /manage-billing|btn-duplicate/);
-  assert.match(markup, /aigw\.dev-server\.cloud/);
+  assert.match(markup, /aigw\.astralx\.com\.vn/);
   assert.match(markup, /data-agentx-cloud-model/);
   assert.match(markup, /model-b/);
 
@@ -1968,7 +2033,7 @@ test('both branded targets gate the side panel and keep Cloud management in sett
       'skillHubBaseUrl',
     ], `${target}: runtime config fields`);
     assert.equal(shipped.keysBaseUrl, 'https://agentx.astralx.com.vn/keys', `${target}: keys service URL`);
-    assert.match(runtime, /https:\/\/aigw\.dev-server\.cloud\/v1/);
+    assert.match(runtime, /https:\/\/aigw\.astralx\.com\.vn\/v1/);
     assert.match(runtime, /https:\/\/agentx\.astralx\.com\.vn\/auth\/realms\/agent-hub/);
     assert.match(runtime, /"oidcClientId": "agentx-workmate"/);
     assert.match(manager, /baseUrl: AGENTX_RUNTIME_CONFIG\.litellmBaseUrl/);

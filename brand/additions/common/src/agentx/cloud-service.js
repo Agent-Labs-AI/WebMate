@@ -1211,7 +1211,7 @@ export function createAgentXCloudService(options = {}) {
         },
       }, MODEL_PROBE_TIMEOUT_MS);
     } catch (error) {
-      return { ok: false, transient: true, code: error.code };
+      return { ok: false, transient: true, unreachable: true, code: error.code };
     }
     if (response.ok) {
       const body = await responseBody(response);
@@ -1371,6 +1371,21 @@ export function createAgentXCloudService(options = {}) {
     return now.length !== before.size || now.some((id) => !before.has(id));
   }
 
+  /** Ask the key service for this account's key again, keeping the models the person chose. */
+  async function collectFromKeyService(session, cached) {
+    const credential = await requestModelKey(session, { rotate: false });
+    const merged = {
+      ...credential,
+      ...modelsForGrant(
+        { models: credential.reachableModels, visionFromInfo: credential.visionFromInfo, transcriptionFromInfo: credential.transcriptionFromInfo },
+        credential,
+        { model: cached.model, transcriptionModel: cached.transcriptionModel },
+      ),
+    };
+    await saveCredential(merged);
+    return merged;
+  }
+
   async function provisionModelKey(session, options = {}) {
     const records = await credentialRecords();
     const cached = records.find((record) => credentialIsUsable(
@@ -1386,17 +1401,7 @@ export function createAgentXCloudService(options = {}) {
           // grant), or this record predates the chat/feature split: ask the key
           // service what is for chat now. It hands back the same key.
           try {
-            const credential = await requestModelKey(session, { rotate: false });
-            const merged = {
-              ...credential,
-              ...modelsForGrant(
-                { models: credential.reachableModels, visionFromInfo: credential.visionFromInfo, transcriptionFromInfo: credential.transcriptionFromInfo },
-                credential,
-                { model: cached.model, transcriptionModel: cached.transcriptionModel },
-              ),
-            };
-            await saveCredential(merged);
-            return merged;
+            return await collectFromKeyService(session, cached);
           } catch (error) {
             // A license refusal is an answer, not an outage: the key service
             // says this account is read-only even though LiteLLM has not
@@ -1419,6 +1424,18 @@ export function createAgentXCloudService(options = {}) {
         return refreshed;
       }
       if (probe.transient) {
+        if (probe.unreachable) {
+          // No HTTP answer at all: offline, or a gateway that moved. Only the key
+          // service can tell them apart, because it names the gateway's current
+          // address with every key. Without this, a record holding a retired
+          // address would stay stale-offline for as long as the key is valid.
+          try {
+            return await collectFromKeyService(session, cached);
+          } catch (error) {
+            if (isLicenseRefusalCode(error?.code)) throw error;
+            // The service cannot be reached either: truly offline.
+          }
+        }
         return {
           ...cached,
           provisionOutcome: 'stale-offline',

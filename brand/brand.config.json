@@ -22,7 +22,7 @@
   "services": {
     "_keysBaseUrl_why": "AgentX SSO keys service (POST /v1/model-key, GET /v1/license). Every cached model key records the URL that issued it (this value without the trailing slash), so changing the value makes every installed copy fetch its key again once (rotate: false).",
     "keysBaseUrl": "https://agentx.astralx.com.vn/keys/",
-    "litellmBaseUrl": "https://aigw.dev-server.cloud/",
+    "litellmBaseUrl": "https://aigw.astralx.com.vn/",
     "oidcIssuer": "https://agentx.astralx.com.vn/auth/realms/agent-hub",
     "oidcClientId": "agentx-workmate",
     "oidcScopes": "openid profile email",
