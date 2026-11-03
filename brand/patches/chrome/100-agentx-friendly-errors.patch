@@ -1,0 +1,509 @@
+diff --git a/src/agent/agent.js b/src/agent/agent.js
+--- a/src/agent/agent.js
++++ b/src/agent/agent.js
+@@ -2,6 +2,7 @@
+ import { validateToolArguments } from './tool-arguments.js';
+ import { isSessionQuotaError, serializeConversationForSession, SESSION_CONVERSATION_BUDGET_BYTES, SESSION_CONVERSATION_RETRY_BUDGET_BYTES } from './conversation-persistence.js';
+ import { formatErrorMessage } from '../error-format.js';
++import { errorCode as agentxErrorCode, textErrorCode } from '../agentx/telemetry.js';
+ import { aggregateMessageCompletion } from '../message-info.js';
+ import { handleDoneJson } from './cloud-output.js';
+ import { applyReadPageWindow, fitReadPageWindowResult, isReadPageWindowResult } from './read-page-window.js';
+@@ -1196,6 +1197,15 @@
+     return this._runningTabs.has(tabId);
+   }
+ 
++  // AgentX: the run-start guard refused an interactive turn. A license
++  // refusal is told as an error update carrying the license's code, so the
++  // panel shows it as the license card; every refusal is still thrown.
++  _reportRunRefusal(error, onUpdate) {
++    const code = agentxErrorCode(error);
++    if (code.startsWith('license_')) onUpdate('error', { message: error.message, code });
++    throw error;
++  }
++
+   activeRunState(tabId) {
+     const persistenceState = this.persistenceDegradedTabs.get(tabId) || null;
+     const state = {
+@@ -10513,6 +10523,7 @@
+       code: 'planner_request_failed',
+       message,
+       failureKind,
++      errorCode: agentxErrorCode(error),
+       provider: sanitizePlannerText(
+         provider?.config?.label || provider?.name || provider?.config?.providerName || '',
+         80,
+@@ -11805,12 +11816,14 @@
+     onUpdate('thinking', { step: 1, note: 'Preparing response…' });
+     let finalResponse = '';
+     let status = 'done';
++    let failure = null;
+     try {
+       finalResponse = await this._generateContextOnlyResponse(
+         tabId, messages, provider, runId,
+         { phase: 'response_only', step: 1, runOptions, currentUserMessage, priorMessageSet },
+       );
+     } catch (error) {
++      failure = error;
+       status = this._isUsageLimitError(error) ? 'cost_limit' : 'error';
+       finalResponse = this._isUsageLimitError(error)
+         ? error.message
+@@ -11823,8 +11836,15 @@
+       finalResponse = 'I could not generate a usable response from the existing conversation context.';
+     }
+     messages.push({ role: 'assistant', content: finalResponse });
+-    onUpdate('text', { content: finalResponse, replace: true });
+-    if (status !== 'done') onUpdate('error', { message: finalResponse });
++    // AgentX: a failed answer is the error card alone (what happened, the raw
++    // text folded under it), not also the raw text as the reply.
++    if (status === 'done' || status === 'cost_limit') onUpdate('text', { content: finalResponse, replace: true });
++    if (status !== 'done') {
++      onUpdate('error', {
++        message: failure ? formatErrorMessage(failure) : finalResponse,
++        code: failure ? agentxErrorCode(failure, this._traceErrorCodeFor(failure)) : 'empty_response',
++      });
++    }
+     this._persist(tabId);
+     return { content: finalResponse, status };
+   }
+@@ -11872,6 +11892,7 @@
+       message: recovered
+         ? 'Browser interaction stopped before completion; a recoverable partial result is shown above.'
+         : 'Stuck in a loop. Stopped.',
++      code: 'loop_stopped',
+     });
+     this._persist(tabId);
+     return { content: finalResponse, status: 'loop_stopped' };
+@@ -18043,16 +18064,12 @@
+ 
+   /**
+    * Detect if an error is a context overflow from any provider.
++   * AgentX: by the provider's own words (telemetry.js textErrorCode) — not
++   * any message that mentions a token, a context or "exceeded", which sent a
++   * spent budget or a rejected key through trimming and retries.
+    */
+   _isContextOverflow(error) {
+-    const msg = (error?.message || error || '').toLowerCase();
+-    return msg.includes('context') ||
+-           msg.includes('token') ||
+-           msg.includes('exceed') ||
+-           msg.includes('too long') ||
+-           msg.includes('maximum context') ||
+-           msg.includes('context_length_exceeded') ||
+-           msg.includes('exceed_context_size');
++    return textErrorCode(error?.message ?? error) === 'context_too_long';
+   }
+ 
+   /**
+@@ -25704,7 +25721,7 @@
+   }
+ 
+   async processMessage(tabId, userMessage, onUpdate = () => {}, mode = 'ask', attachments = [], runOptions = {}) {
+-    await this._claimRunEntry(tabId, 'interactive', runOptions);
++    await this._claimRunEntry(tabId, 'interactive', runOptions).catch((error) => this._reportRunRefusal(error, onUpdate));
+     let continuationEligible = false;
+     const emitUpdate = onUpdate;
+     onUpdate = (type, data) => {
+@@ -26798,7 +26815,10 @@
+             try { this.usageReporter?.failure?.(tabId, e2, retryCode); } catch {}
+             _traceStatus = 'error';
+             if (runId) trace.recordStepEnd(runId, steps, { ok: false, code: retryCode });
+-            onUpdate('error', { message: `Context still too large after trimming: ${e2.message}` });
++            onUpdate('error', {
++              message: `Context still too large after trimming: ${e2.message}`,
++              code: agentxErrorCode(e2, retryCode),
++            });
+             finalResponse = 'The conversation got too long. Please start a new conversation (click the + button).';
+             messages.push({ role: 'assistant', content: finalResponse });
+             break;
+@@ -26809,7 +26829,7 @@
+             try { this.usageReporter?.failure?.(tabId, e, traceFailureCode); } catch {}
+             _traceStatus = 'error';
+             if (runId) trace.recordStepEnd(runId, steps, { ok: false, code: traceFailureCode });
+-            onUpdate('error', { message: e.message });
++            onUpdate('error', { message: e.message, code: agentxErrorCode(e, traceFailureCode) });
+             finalResponse = `Error communicating with LLM: ${e.message}`;
+             messages.push({ role: 'assistant', content: finalResponse });
+             break;
+@@ -26840,7 +26860,7 @@
+             _traceStatus = 'error';
+             try { this.usageReporter?.failure?.(tabId, e2, traceFailureCode); } catch {}
+             if (runId) trace.recordStepEnd(runId, steps, { ok: false, code: traceFailureCode });
+-            onUpdate('error', { message: e2.message });
++            onUpdate('error', { message: e2.message, code: agentxErrorCode(e2, traceFailureCode) });
+             finalResponse = `Error communicating with LLM: ${e2.message}`;
+             messages.push({ role: 'assistant', content: finalResponse });
+             break;
+@@ -27141,6 +27161,7 @@
+       traceFailureCode = this._traceErrorCodeFor(error);
+       try { this.usageReporter?.failure?.(tabId, error, traceFailureCode); } catch {}
+       finalResponse = `Error: ${message}`;
++      onUpdate('error', { message, code: agentxErrorCode(error, traceFailureCode) });
+       if (runId) {
+         const writeErrorTrace = () => trace.recordError(runId, null, 'agent', message, traceFailureCode);
+         if (shouldOrderInteractiveAskTrace) await queueAskStreamingTraceWrite(writeErrorTrace);
+@@ -27162,7 +27183,7 @@
+    * Process a message with streaming output.
+    */
+   async processMessageStream(tabId, userMessage, onUpdate = () => {}, mode = 'ask', runOptions = {}) {
+-    await this._claimRunEntry(tabId, 'interactive', runOptions);
++    await this._claimRunEntry(tabId, 'interactive', runOptions).catch((error) => this._reportRunRefusal(error, onUpdate));
+     let continuationEligible = false;
+     const emitUpdate = onUpdate;
+     onUpdate = (type, data) => {
+@@ -27817,7 +27838,7 @@
+           if (runId) await trace.recordLLMRetry(runId, steps, { delayMs: 0, code: 'CONTEXT_WINDOW_EXCEEDED' });
+           continue; // retry the loop with trimmed context
+         }
+-        onUpdate('error', { message: caughtMessage });
++        onUpdate('error', { message: caughtMessage, code: agentxErrorCode(e, stepErrorCode) });
+         const errMsg = `Error: ${caughtMessage}`;
+         messages.push({ role: 'assistant', content: errMsg });
+         this._persist(tabId);
+@@ -27852,6 +27873,7 @@
+       traceFailureCode = this._traceErrorCodeFor(error);
+       try { this.usageReporter?.failure?.(tabId, error, traceFailureCode); } catch {}
+       finalResponse = `Error: ${message}`;
++      onUpdate('error', { message, code: agentxErrorCode(error, traceFailureCode) });
+       if (runId) {
+         trace.recordError(runId, null, 'agent', message, traceFailureCode);
+       }
+diff --git a/src/providers/openai.js b/src/providers/openai.js
+--- a/src/providers/openai.js
++++ b/src/providers/openai.js
+@@ -43,6 +43,16 @@
+ /**
+  * Provider for OpenAI-compatible APIs (ChatGPT, OpenRouter, any OpenAI-compatible endpoint).
+  */
++// AgentX: a provider's Retry-After header would be lost with the response;
++// written into the error text, the side panel can say how long to wait.
++function retryAfterNote(res) {
++  const value = String(res?.headers?.get?.('retry-after') || '').trim();
++  const seconds = /^\d+$/.test(value)
++    ? Number(value)
++    : Math.ceil((Date.parse(value) - Date.now()) / 1000);
++  return Number.isFinite(seconds) && seconds > 0 ? ` (Retry-After: ${seconds})` : '';
++}
++
+ export class OpenAICompatibleProvider extends BaseLLMProvider {
+   get name() {
+     return this.config.providerName || 'openai';
+@@ -778,7 +788,7 @@
+     if (!res.ok) {
+       let err = '';
+       try { err = (await res.text()).slice(0, 500); } catch {}
+-      throw new Error(`${this.name} error ${res.status}: ${this._formatHttpError(res.status, err)}`);
++      throw new Error(`${this.name} error ${res.status}: ${this._formatHttpError(res.status, err)}${retryAfterNote(res)}`);
+     }
+     let data;
+     try { data = await res.json(); } catch {
+@@ -805,7 +815,7 @@
+     }
+     if (!res.ok) {
+       const err = await res.text();
+-      const streamError = new Error(`${this.name} stream error ${res.status}: ${this._formatHttpError(res.status, err)}`);
++      const streamError = new Error(`${this.name} stream error ${res.status}: ${this._formatHttpError(res.status, err)}${retryAfterNote(res)}`);
+       streamError.isResponsesStreamError = true;
+       throw streamError;
+     }
+@@ -952,7 +962,7 @@
+     if (!res.ok) {
+       let err = '';
+       try { err = (await res.text()).slice(0, 500); } catch {}
+-      throw new Error(`${this.name} error ${res.status}: ${this._formatHttpError(res.status, err)}`);
++      throw new Error(`${this.name} error ${res.status}: ${this._formatHttpError(res.status, err)}${retryAfterNote(res)}`);
+     }
+ 
+     let data;
+@@ -994,7 +1004,7 @@
+ 
+     if (!res.ok) {
+       const err = await res.text();
+-      throw new Error(`${this.name} stream error ${res.status}: ${this._formatHttpError(res.status, err)}`);
++      throw new Error(`${this.name} stream error ${res.status}: ${this._formatHttpError(res.status, err)}${retryAfterNote(res)}`);
+     }
+ 
+     if (!res.body?.getReader) {
+diff --git a/src/ui/sidepanel.html b/src/ui/sidepanel.html
+--- a/src/ui/sidepanel.html
++++ b/src/ui/sidepanel.html
+@@ -12,6 +12,7 @@
+   <link rel="stylesheet" href="../../styles/sidepanel.css">
+   <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
+   <link rel="stylesheet" href="agentx-login-gate.css">
++  <link rel="stylesheet" href="agentx-error-card.css">
+   <script src="agentx-boot-watchdog.js"></script>
+   <!-- KaTeX is loaded as classic scripts (not modules). They assign to
+        window.katex and window.renderMathInElement so formatMarkdown can
+diff --git a/src/ui/settings.html b/src/ui/settings.html
+--- a/src/ui/settings.html
++++ b/src/ui/settings.html
+@@ -1217,6 +1217,7 @@
+     :root[data-theme="light"] .info-box code       { background: rgba(89,55,25,0.08); }
+   </style>
+   <link rel="stylesheet" href="agentx-cloud.css">
++  <link rel="stylesheet" href="agentx-error-card.css">
+   <link rel="stylesheet" href="agentx-hub.css">
+ </head>
+ <body>
+diff --git a/src/ui/sidepanel.js b/src/ui/sidepanel.js
+--- a/src/ui/sidepanel.js
++++ b/src/ui/sidepanel.js
+@@ -45,6 +45,8 @@
+ import { getSharedAttachmentStore, isAttachmentId, newAttachmentId } from '../media/attachment-store.js';
+ import { createAgentXLoginGate } from './agentx-login-gate.js';
+ import { claimRunError } from './run-error-dedupe.js';
++import { describeError } from './agentx-error-copy.js';
++import { errorCardElement } from './agentx-error-card.js';
+ import { RUN_CAPTURE_START_ERROR_PREFIX } from '../run-capture.js';
+ import { runUiUnavailableBeforeSeq } from '../run-ui-journal.js';
+ import { modelPickerState, modelShortName, modelVendorPrefix, modelVisionNote } from './model-picker.js';
+@@ -2888,7 +2890,7 @@
+   updateSlashCommandAutocomplete();
+   syncSendButtonState();
+   Promise.resolve().then(() => sendMessage()).catch((e) => {
+-    addMessage('error', t('sp.error_prefix', { msg: e?.message || String(e) }));
++    addAgentXErrorMessage({ message: e?.message || String(e) });
+   });
+   return true;
+ }
+@@ -3641,13 +3643,13 @@
+     const response = await sendToBackground(bgAction, { jobId });
+     if (response && (response.ok === false || response.success === false)) {
+       if (currentTabId === tabId) {
+-        addMessage('error', t('sp.error_prefix', { msg: response.error || 'Scheduled job action failed.' }));
++        addAgentXErrorMessage({ message: response.error || 'Scheduled job action failed.' });
+       }
+     }
+     await refreshScheduledJobs({ tabId });
+   } catch (e) {
+     if (currentTabId === tabId) {
+-      addMessage('error', t('sp.error_prefix', { msg: e.message }));
++      addAgentXErrorMessage({ message: e.message });
+     }
+   }
+ }
+@@ -3852,7 +3854,10 @@
+     ensureScheduledTerminalMessage(job);
+     await settleScheduledRun(event, job, runTabId);
+   } else if (event === 'failed') {
+-    addMessage('error', t('sp.scheduled.failed', { title, msg: job.lastError || t('sp.scheduled.unknown_error') }));
++    // The task's name heads the card: "Tác vụ theo lịch “…” chạy lỗi".
++    addAgentXErrorMessage({ message: job.lastError || '' }, {
++      context: t('sp.scheduled.failed', { title, msg: '' }).replace(/[\s:：]+$/, ''),
++    });
+     await settleScheduledRun(event, job, runTabId);
+   } else if (event === 'clarification_required') {
+     ensureScheduledTerminalMessage(job);
+@@ -7079,18 +7084,12 @@
+   // already populated. A restored card stays silent, which is what we want.
+   textEl.setAttribute('role', 'alert');
+ 
+-  const message = document.createElement('div');
+-  message.className = 'planner-request-failure-message';
+-  message.textContent = data.message || 'Planner request failed before a valid response was available.';
+-  // Name the provider that failed — with several configured, "open Providers"
+-  // is only actionable if the user knows which one to look at. The label is a
+-  // proper noun, so it needs no translation.
+-  if (data.provider) {
+-    const providerName = document.createElement('div');
+-    providerName.className = 'planner-request-failure-provider';
+-    providerName.textContent = data.provider;
+-    message.appendChild(providerName);
+-  }
++  // AgentX: what failed in plain words, the raw text folded under "Chi tiết".
++  const described = describeError({
++    code: data.errorCode,
++    message: data.message || 'Planner request failed before a valid response was available.',
++    online: navigator.onLine,
++  }, getLocale());
+ 
+   const actions = document.createElement('div');
+   actions.className = 'planner-request-failure-actions';
+@@ -7101,7 +7100,7 @@
+   retryBtn.textContent = t('sp.retry');
+   retryBtn.title = t('sp.retry');
+   retryBtn.setAttribute('aria-label', t('sp.retry'));
+-  const retryReady = configureRetryButton(retryBtn, retryPayload);
++  const retryReady = described.retry && configureRetryButton(retryBtn, retryPayload);
+ 
+   const providerBtn = document.createElement('button');
+   providerBtn.type = 'button';
+@@ -7118,7 +7117,10 @@
+   visibleActions[0]?.classList.add('primary');
+   visibleActions.forEach(btn => actions.appendChild(btn));
+ 
+-  textEl.append(message, actions);
++  // Name the provider that failed — with several configured, "open Providers"
++  // is only actionable if the user knows which one to look at. The label is a
++  // proper noun, so it needs no translation.
++  textEl.append(errorCardElement(document, described, { context: data.provider || '', actions: [actions] }));
+   addMessageCopyButton(assistantEl);
+   scrollToBottom();
+   return true;
+@@ -7159,7 +7161,7 @@
+   const message = formatErrorMessage(data?.message ?? data?.error ?? data);
+   const active = takeActiveRetryPayloadForError(tabId, requestId, message);
+   if (active.duplicate) return;
+-  const msgEl = addMessage('error', t('sp.error_prefix', { msg: message }), {
++  const msgEl = addAgentXErrorMessage({ code: data?.code, message }, {
+     retryPayload: isTabAbortRequested(tabId) ? null : active.retryPayload,
+     subscribeResumeMode: active.retryPayload?.mode,
+   });
+@@ -7170,6 +7172,21 @@
+   }
+ }
+ 
++// AgentX: every error a person sees in the chat is one card — what happened
++// and what to do, in the panel's language, with the error code and the raw
++// text folded under "Chi tiết" (agentx-error-copy.js). Retry only where
++// retrying can help; the upstream Retry button moves into the card.
++function addAgentXErrorMessage(error, { retryPayload = null, context = '', ...options } = {}) {
++  const described = describeError({ ...error, online: navigator.onLine }, getLocale());
++  const msgEl = addMessage('error', '', { ...options, retryPayload: described.retry ? retryPayload : null });
++  msgEl.classList.add('agentx-friendly');
++  const retryBtn = msgEl.querySelector('.error-retry-btn');
++  retryBtn?.append(t('sp.retry'));
++  msgEl.querySelector('.message-text')
++    .replaceChildren(errorCardElement(document, described, { context, actions: [retryBtn] }));
++  return msgEl;
++}
++
+ function rebindRestoredMessageControls() {
+   restoreStagedScreenshotAttachments();
+   void restoreStoredAttachmentChips();
+@@ -9305,6 +9322,9 @@
+       await persistMessageAttachmentState(tabId, userEl);
+     }
+ 
++    // AgentX: below, an empty reply stays empty when the run failed — its card
++    // already says what happened, and the "Error: …" reply text would only
++    // repeat it, raw.
+     if (renderToCurrentTab && currentTabId === tabId && isTabAbortRequested(tabId)) {
+       // Agent was stopped — show what we got so far
+       const textEl = assistantEl?.querySelector('.message-text');
+@@ -9318,7 +9338,7 @@
+       const textEl = assistantEl.querySelector('.message-text');
+       if (textEl && getStreamedAssistantText(textEl) === String(res.content)) {
+         renderAssistantTextUpdate(assistantEl, res.content);
+-      } else if (textEl && !textEl.textContent.trim()) {
++      } else if (textEl && !textEl.textContent.trim() && !returnedErrorUpdate) {
+         if (!renderSubscribeError(textEl, res.content, modeForSend)) {
+           textEl.innerHTML = formatMarkdown(res.content);
+         }
+@@ -10085,7 +10105,9 @@
+       const suppressTimedOutPlanTerminal = !!(eventAssistantEl || currentAssistantEl)
+         ?.querySelector('.plan-review-expired')
+         && isPlanReviewTimeoutTerminal(data?.finalContent);
+-      if (currentAssistantEl && data?.finalContent && !suppressTimedOutPlanTerminal) {
++      // AgentX: a failed run's terminal text is the raw error its card already
++      // tells; the reply keeps what was shown (a cut-off answer stays as it was).
++      if (currentAssistantEl && data?.finalContent && !suppressTimedOutPlanTerminal && data.status !== 'failed') {
+         const textEl = currentAssistantEl.querySelector('.message-text');
+         const streamedText = getStreamedAssistantText(textEl);
+         const hasStreamedText = hasStreamedAssistantText(textEl);
+@@ -12115,7 +12137,10 @@
+       chatHistoryRecordIdsByTab.set(tabId, res.conversationId);
+     }
+ 
+-    if (currentTabId === tabId && res?.content && assistantEl) {
++    // AgentX: a failed continuation's card says what happened; its raw
++    // "Error: …" reply text would only repeat it.
++    const continuationFailed = Array.isArray(res?.updates) && res.updates.some(u => u?.type === 'error');
++    if (currentTabId === tabId && res?.content && assistantEl && !continuationFailed) {
+       const textEl = assistantEl.querySelector('.message-text');
+       if (textEl && getStreamedAssistantText(textEl) === String(res.content)) {
+         renderAssistantTextUpdate(assistantEl, res.content);
+@@ -12132,7 +12157,7 @@
+         && !isTabAbortRequested(tabId)
+         && !clearedConversationRunRequestIds.has(requestId)
+         && !conversationClearFollowerCancellationRequestIds.has(requestId)) {
+-      addMessage('error', t('sp.error_prefix', { msg: e.message }));
++      addAgentXErrorMessage({ message: e.message });
+     }
+   } finally {
+     const ownsRunState = localRunRequestIds.get(tabId) === requestId;
+diff --git a/src/ui/settings.js b/src/ui/settings.js
+--- a/src/ui/settings.js
++++ b/src/ui/settings.js
+@@ -87,6 +87,8 @@
+   getSharedAttachmentStore,
+ } from '../media/attachment-store.js';
+ import { createAgentXCloudSettingsController } from './agentx-cloud-settings.js';
++import { describeError } from './agentx-error-copy.js';
++import { errorDetailsElement } from './agentx-error-card.js';
+ import {
+   agentxHubEditLockedMessage,
+   agentxHubSkillRowActions,
+@@ -3665,6 +3667,19 @@
+   return testEl;
+ }
+ 
++// AgentX: a failed connection test says what went wrong in plain words, in
++// the page's language; the provider's own answer and the error code stay
++// one click away under "Chi tiết".
++function setProviderTestFailure(id, error) {
++  const described = describeError({ ...error, online: navigator.onLine }, getLocale());
++  const testEl = setProviderTestResult(id, 'fail', t('st.providers.failed', { error: described.title }));
++  if (!testEl) return;
++  const hint = document.createElement('p');
++  hint.className = 'agentx-error-hint';
++  hint.textContent = described.hint;
++  testEl.append(hint, errorDetailsElement(document, described));
++}
++
+ async function saveProvider(id, { showFlash = true, markConfigured = true } = {}) {
+   const inputs = document.querySelectorAll(`input[data-provider="${id}"], select[data-provider="${id}"], textarea[data-provider="${id}"]`);
+   const config = {};
+@@ -3754,10 +3769,10 @@
+       applyProviderContextWindow(id, res.contextWindow);
+       setProviderTestResult(id, 'ok', t('st.providers.connected', { model: res.model || t('st.providers.unknown_model') }));
+     } else {
+-      setProviderTestResult(id, 'fail', t('st.providers.failed', { error: res.error }));
++      setProviderTestFailure(id, { code: res.code, message: res.error });
+     }
+   } catch (e) {
+-    setProviderTestResult(id, 'fail', t('st.providers.failed', { error: e.message }));
++    setProviderTestFailure(id, { code: e.code, message: e.message });
+   }
+ }
+ 
+@@ -3881,7 +3896,9 @@
+         if (chrome.runtime.lastError) {
+           reject(new Error(chrome.runtime.lastError.message));
+         } else if (response?.error) {
+-          reject(new Error(response.error));
++          // AgentX: a refusal keeps its code (a license refusal's words differ).
++          const code = typeof response.code === 'string' ? { code: response.code } : {};
++          reject(Object.assign(new Error(response.error), code));
+         } else {
+           resolve(response);
+         }
+diff --git a/src/offscreen/offscreen.js b/src/offscreen/offscreen.js
+--- a/src/offscreen/offscreen.js
++++ b/src/offscreen/offscreen.js
+@@ -179,6 +179,8 @@
+         ok: res.ok,
+         status: res.status,
+         contentType: res.headers.get('content-type') || '',
++        // AgentX: the wait a provider asks for (openai.js writes it into its error).
++        retryAfter: res.headers.get('retry-after') || '',
+         hasBody: !!res.body,
+       });
+       // HEAD and null-body statuses (204/205/304) legitimately expose no
+diff --git a/src/providers/fetch-with-fallback.js b/src/providers/fetch-with-fallback.js
+--- a/src/providers/fetch-with-fallback.js
++++ b/src/providers/fetch-with-fallback.js
+@@ -305,7 +305,11 @@
+         const responseInit = {
+           status: msg.status,
+           statusText: msg.ok ? 'OK' : 'Error',
+-          headers: { 'Content-Type': msg.contentType || 'application/json' },
++          headers: {
++            'Content-Type': msg.contentType || 'application/json',
++            // AgentX: the provider's Retry-After, for openai.js's error text.
++            ...(msg.retryAfter ? { 'Retry-After': String(msg.retryAfter) } : {}),
++          },
+         };
+         // The Response constructor rejects a non-null body for 204, 205,
+         // and 304. HEAD responses can also have status 200 with no body, so

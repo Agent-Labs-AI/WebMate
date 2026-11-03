@@ -10,7 +10,7 @@ import {
   removeCloudCredential,
 } from '../agentx/cloud-provider-install.js';
 import { transcriptionModelsFromGateway, visionModelsFromGateway } from '../agentx/cloud-models.js';
-import { isLicenseReadOnly } from '../agentx/license.js';
+import { isLicenseReadOnly, LICENSE_READ_ONLY_CODE } from '../agentx/license.js';
 import {
   bindAgentXCloudPanel,
   bindAgentXCloudTranscriptionPanel,
@@ -294,10 +294,13 @@ export function createAgentXCloudSettingsController({
           return;
         }
         if (action === 'test') {
-          const result = await sendToBackground('test_provider', { providerId: PROVIDER_ID });
+          // A refused test rejects with the gateway's words (and a license
+          // refusal with its code); the card tells it in plain words.
+          const result = await sendToBackground('test_provider', { providerId: PROVIDER_ID })
+            .catch((error) => ({ ok: false, error: error.message, code: error.code }));
           if (!result?.ok) {
             throw new AgentXCloudError(
-              'gateway_test_failed',
+              result?.code === LICENSE_READ_ONLY_CODE ? LICENSE_READ_ONLY_CODE : 'gateway_test_failed',
               result?.error || 'LiteLLM gateway connection test failed.',
             );
           }

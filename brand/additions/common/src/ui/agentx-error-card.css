@@ -1,0 +1,180 @@
+/* AgentX error card (agentx-error-card.js) — what failed, in plain words.
+ *
+ * Quieter than the upstream error bubble: the panel's own card surface and
+ * hairline, one small red mark beside the title, secondary text for the next
+ * step, and the raw details folded away. Only the panel's variables, so it
+ * follows the light and dark themes. */
+
+.message.error.agentx-friendly .message-content {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-bottom-left-radius: 4px;
+  color: var(--text-primary);
+}
+
+.message.error.agentx-friendly.retryable .message-content {
+  padding-right: 14px;
+  min-height: 0;
+}
+
+/* The planner's request-failure card is an assistant message carrying the
+   same card (with its own Retry and Providers buttons). */
+.message.assistant.planner-request-failure .message-content {
+  background: var(--bg-secondary);
+  border-color: var(--border);
+}
+
+.agentx-error {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.agentx-error p {
+  margin: 0;
+}
+
+.agentx-error-context {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.agentx-error-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+}
+
+.agentx-error-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  fill: none;
+  stroke: var(--error);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.agentx-error-title {
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.agentx-error-hint {
+  padding-left: 23px;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.agentx-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 4px;
+  padding-left: 23px;
+}
+
+/* The upstream Retry is an icon pinned to the bubble's corner; in the card it
+   is a small labelled button at the start of the action row. */
+.agentx-error-actions .error-retry-btn {
+  position: static;
+  width: auto;
+  height: 24px;
+  gap: 5px;
+  padding: 0 9px;
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* The planner card's own buttons (Retry, Providers) sit in the same row at
+   the same size. */
+.agentx-error-actions .planner-request-failure-action {
+  min-height: 24px;
+  padding: 0 9px;
+  font-weight: 500;
+}
+
+.agentx-error-actions .error-retry-btn svg {
+  width: 12px;
+  height: 12px;
+}
+
+.agentx-error-actions .error-retry-btn:hover,
+.agentx-error-actions .error-retry-btn:focus-visible {
+  background: var(--bg-tertiary);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+
+.agentx-error-details {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.agentx-error-details[open] {
+  flex-basis: 100%;
+}
+
+.agentx-error-details-summary {
+  width: fit-content;
+  cursor: pointer;
+  user-select: none;
+}
+
+.agentx-error-details-summary:hover {
+  color: var(--text-secondary, var(--text));
+}
+
+.agentx-error-code {
+  margin-top: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* `.message-content pre` (code blocks) would make it a horizontally scrolled
+   block; the raw text wraps inside the card instead. */
+.agentx-error-raw,
+.message-content .agentx-error-raw {
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  background: none;
+  border-radius: 0;
+  max-height: 160px;
+  overflow: auto;
+  border-left: 2px solid var(--border);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Settings (its own variables: --text2) — Providers → Test, under the
+   one-line result, and the AgentX account card's connection test. */
+.test-result .agentx-error-hint {
+  margin: 2px 0 0;
+  padding-left: 0;
+  color: var(--text2);
+}
+
+.test-result .agentx-error-details,
+.agentx-cloud-notice .agentx-error-details {
+  margin-top: 4px;
+  color: var(--text2);
+}
+
+.agentx-cloud-notice-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}

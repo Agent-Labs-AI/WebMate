@@ -74,31 +74,109 @@ export function statusCode(status, errorCode = null) {
 }
 
 /**
- * The stable code of an error a turn ended with. `traceCode` is the agent's
- * own classification; a transport failure it could not tell apart is read
- * from the error's status and name. Never the error's text is sent.
+ * What a provider's words say went wrong, first match wins. A phrase is more
+ * precise than a status: a 400 that says `context_length_exceeded` is a
+ * context problem, a 401 that says "not allowed to access model" is a model
+ * grant. LiteLLM (the AgentX AI Gateway) names its exceptions in the text
+ * (`RateLimitError`, `ContextWindowExceededError`, `BudgetExceededError`, …).
+ */
+const PHRASES = [
+  [
+    "context_too_long",
+    /context[_\s-]*length[_\s-]*exceeded|contextwindowexceeded|context[_\s-]*window[_\s-]*(?:exceeded|is too)|maximum (?:context|prompt) length|exceed(?:s|ed)? (?:the )?(?:model'?s? )?(?:available |maximum )?context|exceed_context_size|greater than the context length|exceeds the maximum number of tokens|prompt is too long|input is too long|too many (?:input )?tokens|reduce the length of the messages|request entity too large/,
+  ],
+  [
+    "quota_exceeded",
+    /budget[_\s-]*exceeded|budget has been exceeded|exceeded (?:your |the )?budget|max[_\s-]*budget|insufficient[_\s-]*quota|exceeded your current quota|quota[_\s-]*exceeded|insufficient[_\s-]*(?:funds|credits?|balance)|credit balance is too low|billing[_\s-]*(?:hard[_\s-]*)?limit/,
+  ],
+  [
+    "content_filtered",
+    /content[_\s-]*filter|content[_\s-]*policy|contentpolicyviolation|content management policy|responsible ai policy|safety (?:filter|system)/,
+  ],
+  [
+    "rate_limited",
+    /ratelimiterror|rate[_\s-]*limit|too many requests|requests per minute|tokens per minute/,
+  ],
+  [
+    "model_not_allowed",
+    /not allowed to access (?:this )?model|can only access models|model not allowed/,
+  ],
+  [
+    "auth_failed",
+    /authenticationerror|permissiondeniederror|invalid[_\s-]*api[_\s-]*key|incorrect api key|invalid (?:proxy server )?token|unauthorized|api key (?:has )?(?:expired|been revoked)/,
+  ],
+  [
+    "model_unavailable",
+    /notfounderror|model[_\s-]*not[_\s-]*found|(?:model|deployment) [^.]{0,80}does not exist|no such model|invalid model name|unknown model/,
+  ],
+  [
+    "stream_interrupted",
+    /stream transport error|stream ended before|disconnected mid-stream|before (?:its )?terminal event|missing_response_completed|stream returned malformed json|stream returned no readable body|could not open its response body/,
+  ],
+  ["timeout", /\btimed? ?out\b|timeout/],
+  [
+    "network_error",
+    /apiconnectionerror|network ?error|failed to fetch|could not reach|econnrefused|enotfound|econnreset|load failed|internet_disconnected/,
+  ],
+  ["upstream_error", /serviceunavailableerror|internalservererror|\bstream error:/],
+];
+/** openai.js keeps the HTTP status only in its text: "… error 429: …", "… stream error 503: …". */
+const TEXT_STATUS = /(?:\berror|\bstatus(?:\s*code)?|\bhttp)\s*:?\s*([45]\d\d)\b/;
+
+function statusErrorCode(status) {
+  if (status === 404) return "model_unavailable";
+  if (status === 401 || status === 403) return "auth_failed";
+  if (status === 402) return "quota_exceeded";
+  if (status === 413) return "context_too_long";
+  if (status === 429) return "rate_limited";
+  if (status >= 500 && status <= 599) return "upstream_error";
+  if (status >= 400 && status <= 499) return "bad_request";
+  return null;
+}
+
+function phraseErrorCode(message) {
+  for (const [code, pattern] of PHRASES) if (pattern.test(message)) return code;
+  return null;
+}
+
+function textStatusErrorCode(message) {
+  const status = TEXT_STATUS.exec(message);
+  return status ? statusErrorCode(Number(status[1])) : null;
+}
+
+/**
+ * The code an error's text alone gives — its phrases, else the HTTP status
+ * written in it — or null when it says nothing recognisable. The agent's
+ * context-overflow check reads it; the side panel's error card reads
+ * `errorCode`, which builds on the same words.
+ */
+export function textErrorCode(text) {
+  const message = String(text || "").toLowerCase();
+  return phraseErrorCode(message) || textStatusErrorCode(message);
+}
+
+/**
+ * The stable code of an error a turn ended with: the keys service's or the
+ * license's own code; else what the provider's words say; else `traceCode`,
+ * the agent's own classification; else the HTTP status (on the error, or
+ * written in its text) and name. Never the error's text is sent.
  */
 export function errorCode(error, traceCode = null) {
   const code = typeof error?.code === "string" ? error.code : "";
   if (code === "license_read_only")
     return LICENSE_CODES[error?.license?.state] || "license_read_only";
   if (KEYS_CODES.has(code)) return code;
-  if (TRACE_CODES[traceCode]) return TRACE_CODES[traceCode];
-  const status = Number(error?.status);
+  if (traceCode === "COST_LIMIT") return TRACE_CODES.COST_LIMIT;
   const name = String(error?.name || "");
+  if (name === "TimeoutError") return "timeout";
   const message = String(error?.message || "").toLowerCase();
-  if (name === "TimeoutError" || /\btimed? ?out\b|timeout/.test(message))
-    return "timeout";
-  if (status === 404) return "model_unavailable";
-  if (status === 401 || status === 403) return "auth_failed";
-  if (status === 402) return "quota_exceeded";
-  if (status === 429) return "rate_limited";
-  if (status >= 500 && status <= 599) return "upstream_error";
-  if (status >= 400 && status <= 499) return "bad_request";
-  if (
-    (name === "TypeError" && /fetch|network/.test(message)) ||
-    /networkerror|failed to fetch|econnrefused|enotfound/.test(message)
-  )
+  const phrase = phraseErrorCode(message);
+  if (phrase) return phrase;
+  if (TRACE_CODES[traceCode]) return TRACE_CODES[traceCode];
+  const status =
+    statusErrorCode(Number(error?.status)) || textStatusErrorCode(message);
+  if (status) return status;
+  if (name === "TypeError" && /fetch|network/.test(message))
     return "network_error";
   return FALLBACK_CODE;
 }

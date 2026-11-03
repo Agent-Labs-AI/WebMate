@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "npm run test:provider-limits && npm run test:toolbar-guard && node test/run.js && node test/selection-scope-restoration.mjs && npm run test:security && npm run test:agentx-auth && node test/agentx-hub.test.mjs && node test/workmate-install.test.mjs && node test/agentx-telemetry.test.mjs",
+    "test": "npm run test:provider-limits && npm run test:toolbar-guard && node test/run.js && node test/selection-scope-restoration.mjs && npm run test:security && npm run test:agentx-auth && node test/agentx-hub.test.mjs && node test/workmate-install.test.mjs && node test/agentx-telemetry.test.mjs && node test/agentx-friendly-errors.test.mjs",
     "test:provider-limits": "node test/provider-model-limits.mjs",
     "test:security": "node test/security/injection-corpus.mjs",
     "test:toolbar-guard": "node test/rich-text-toolbar-guard.mjs",
@@ -34,6 +34,7 @@
     "brand:audit": "node scripts/brand-build.mjs --audit",
     "brand:clean": "node scripts/brand-build.mjs --clean",
     "test:agentx-hub": "npm run brand:build && node test/agentx-hub.test.mjs",
+    "test:agentx-friendly-errors": "npm run brand:build && node test/agentx-friendly-errors.test.mjs",
     "test:workmate-install": "npm run brand:build && node test/workmate-install.test.mjs && node test/agentx-telemetry.test.mjs",
     "sign:release": "node scripts/sign-release.mjs"
   },

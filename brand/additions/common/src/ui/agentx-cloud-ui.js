@@ -1,4 +1,5 @@
-import { isLicenseReadOnly, isLicenseRefusalCode } from '../agentx/license.js';
+import { isLicenseReadOnly, isLicenseRefusalCode, LICENSE_READ_ONLY_CODE } from '../agentx/license.js';
+import { describeError } from './agentx-error-copy.js';
 import {
   formatLicenseDay,
   licenseNoticeSentence,
@@ -6,6 +7,9 @@ import {
   licenseReinstateSentence,
   licenseStateLabel,
 } from './agentx-license-copy.js';
+
+/** The Settings connection test of the managed gateway failed (agentx-cloud-settings.js). */
+const TEST_FAILED = 'gateway_test_failed';
 
 const COPY = {
   en: {
@@ -238,6 +242,38 @@ function renderNotice(kind, message) {
     </div>`;
 }
 
+/**
+ * A failed connection test, in the words every AgentX error card uses
+ * (agentx-error-copy.js): what happened, what to do, and the gateway's own
+ * answer with its code folded under "Chi tiết". Any other error is a notice.
+ */
+function renderErrorNotice(status, locale) {
+  const errorCode = status.errorCode || status.error?.code;
+  if (![TEST_FAILED, LICENSE_READ_ONLY_CODE].includes(errorCode)) {
+    return renderNotice('error', errorMessage(status, locale));
+  }
+  // The license block already says why, with the plan, the date and whom to ask.
+  if (errorCode === LICENSE_READ_ONLY_CODE && isLicenseReadOnly(status.license)) return '';
+  const described = describeError({
+    code: errorCode === TEST_FAILED ? '' : errorCode,
+    message: status.errorMessage || status.error?.message || '',
+    online: globalThis.navigator?.onLine,
+  }, locale);
+  return `
+    <div class="agentx-cloud-notice agentx-cloud-notice-error" role="alert">
+      <span class="agentx-cloud-notice-icon" aria-hidden="true">!</span>
+      <span class="agentx-cloud-notice-body">
+        <strong>${escapeHtml(described.title)}</strong>
+        <span>${escapeHtml(described.hint)}</span>
+        <details class="agentx-error-details">
+          <summary class="agentx-error-details-summary">${escapeHtml(described.details)}</summary>
+          <p class="agentx-error-code">${escapeHtml(described.codeLine)}</p>
+          ${described.raw ? `<pre class="agentx-error-raw">${escapeHtml(described.raw)}</pre>` : ''}
+        </details>
+      </span>
+    </div>`;
+}
+
 function renderBusy(status, locale) {
   if (!status.action) return '';
   return `
@@ -255,7 +291,7 @@ function renderSignedOut(status, locale) {
         <h3 id="agentx-cloud-auth-title">${escapeHtml(copy(locale, 'titleSignedOut'))}</h3>
         <p>${escapeHtml(copy(locale, 'bodySignedOut'))}</p>
       </div>
-      ${renderNotice('error', errorMessage(status, locale))}
+      ${renderErrorNotice(status, locale)}
       ${renderBusy(status, locale)}
       <div class="agentx-cloud-actions">
         <button
@@ -393,7 +429,7 @@ function renderSignedIn(status, locale) {
       ${renderLicense(status, locale)}
       ${offline ? renderNotice('warning', copy(locale, 'sessionOffline')) : ''}
       ${status.persistenceWarning ? renderNotice('warning', copy(locale, 'persistenceWarning')) : ''}
-      ${renderNotice('error', errorMessage(status, locale))}
+      ${renderErrorNotice(status, locale)}
       ${renderNotice('success', testMessage)}
       ${renderBusy(status, locale)}
       <p class="agentx-cloud-key-note">${escapeHtml(copy(locale, 'keyProtected'))}</p>
@@ -475,7 +511,7 @@ export function renderAgentXCloudVisionPanel(status = {}, locale = 'en') {
           <h3 id="agentx-cloud-vision-title">${escapeHtml(copy(locale, 'visionTitle'))}</h3>
           <p>${escapeHtml(copy(locale, 'visionBodyDisconnected'))}</p>
         </div>
-        ${renderNotice('error', errorMessage(status, locale))}
+        ${renderErrorNotice(status, locale)}
         ${renderBusy(status, locale)}
       </section>`;
   }
@@ -504,7 +540,7 @@ export function renderAgentXCloudVisionPanel(status = {}, locale = 'en') {
           <dd>${renderVisionModelControl(status, locale)}</dd>
         </div>
       </dl>
-      ${renderNotice('error', errorMessage(status, locale))}
+      ${renderErrorNotice(status, locale)}
       ${renderNotice('success', testMessage)}
       ${renderBusy(status, locale)}
       <p class="agentx-cloud-key-note">${escapeHtml(copy(locale, 'keyProtected'))}</p>
@@ -571,7 +607,7 @@ export function renderAgentXCloudTranscriptionPanel(status = {}, locale = 'en') 
           <h3 id="agentx-cloud-transcription-title">${escapeHtml(copy(locale, 'transcriptionTitle'))}</h3>
           <p>${escapeHtml(copy(locale, 'transcriptionBodyDisconnected'))}</p>
         </div>
-        ${renderNotice('error', errorMessage(status, locale))}
+        ${renderErrorNotice(status, locale)}
         ${renderBusy(status, locale)}
       </section>`;
   }
@@ -602,7 +638,7 @@ export function renderAgentXCloudTranscriptionPanel(status = {}, locale = 'en') 
           <dd>${renderTranscriptionModelControl(status, locale)}</dd>
         </div>
       </dl>
-      ${renderNotice('error', errorMessage(status, locale))}
+      ${renderErrorNotice(status, locale)}
       ${renderNotice('success', testMessage)}
       ${renderBusy(status, locale)}
       <p class="agentx-cloud-key-note">${escapeHtml(copy(locale, 'keyProtected'))}</p>
