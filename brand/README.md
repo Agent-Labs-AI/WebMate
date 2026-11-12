@@ -23,7 +23,7 @@ brand/
 ├── first-run-install.css Giao diện trang chào mừng sau khi cài extension
 ├── first-run-onboarding.css
 │                         Giao diện coachmark ghim và onboarding 3 bước trong side panel
-├── icons/                Icon đã sinh từ assets/logo/logo.jpg — đè lên src/<target>/icons/
+├── icons/                Icon sinh từ logo chuẩn AgentX Workmate (`assets/brand/`, `scripts/sync-brand-assets.py`) — đè lên src/<target>/icons/
 ├── overrides/<target>/   Thay nguyên file upstream (cùng đường dẫn tương đối)
 ├── additions/<target>/   File hoàn toàn mới của bạn
 └── patches/<target>/     Diff phẫu thuật, áp bằng `git apply`
