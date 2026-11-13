@@ -48,7 +48,7 @@ const {
 const { createAgentXLicenseGate, isLicenseRefusalError } = await import(pathToFileURL(LICENSE_GATE_PATH).href);
 const { createAgentXCloudSettingsController } = await import(pathToFileURL(CONTROLLER_PATH).href);
 const { createAgentXLoginGate } = await import(pathToFileURL(GATE_PATH).href);
-const { createWorkmateAuth, LOGIN_REQUIRED_HOLDOFF_MS } = await import(pathToFileURL(WORKMATE_AUTH_PATH).href);
+const { createWorkmateAuth, LOGIN_REQUIRED_HOLDOFF_MS, TRANSIENT_RETRY_DELAYS_MS } = await import(pathToFileURL(WORKMATE_AUTH_PATH).href);
 const { renderAgentXCloudPanel } = await import(pathToFileURL(UI_PATH).href);
 const { OpenAICompatibleProvider } = await import(pathToFileURL(OPENAI_PROVIDER_PATH).href);
 const { transcribeAudio } = await import(pathToFileURL(TRANSCRIBE_PATH).href);
@@ -1750,11 +1750,14 @@ function fakeAuthService({ signedIn = false, email = '', silent, interactive } =
 function authHarness(serviceOptions = {}, { now = () => NOW } = {}) {
   const { service: cloud, calls } = fakeAuthService(serviceOptions);
   const background = [];
+  const slept = [];
   const providerState = { providers: { webbrain_cloud: {} }, active: 'openai' };
   const auth = createWorkmateAuth({
     api: {},
     service: cloud,
     now,
+    // The retry waits are recorded, not waited out.
+    sleep: async (ms) => { slept.push(ms); },
     sendToBackground: async (action, data = {}) => {
       background.push({ action, data });
       if (action === 'get_providers') return structuredClone(providerState);
@@ -1769,7 +1772,7 @@ function authHarness(serviceOptions = {}, { now = () => NOW } = {}) {
       throw new Error(`Unexpected background action: ${action}`);
     },
   });
-  return { auth, calls, background, providerState };
+  return { auth, calls, background, providerState, slept };
 }
 
 test('auth_hint signs in silently and installs the key; a signed-in browser is left alone', async () => {
@@ -1817,11 +1820,21 @@ test('auth_hint answers login_required calmly and holds off for a minute; other 
   await denied.auth.hint({ loginHint: 'kien@example.test' });
   assert.equal(denied.calls.filter(([kind]) => kind === 'silent').length, 2, 'after the holdoff it asks Keycloak again');
 
-  const broken = authHarness({ silent: new AgentXCloudError('network_unavailable', 'offline') });
+  const broken = authHarness({ silent: new AgentXCloudError('network_unavailable', 'offline', { transient: true }) });
   const failed = await broken.auth.hint({ loginHint: 'kien@example.test' });
   assert.equal(failed.ok, false);
   assert.equal(failed.outcome, 'error');
   assert.equal(failed.code, 'network_unavailable');
+  assert.equal(
+    broken.calls.filter(([kind]) => kind === 'silent').length,
+    TRANSIENT_RETRY_DELAYS_MS.length + 1,
+    'a network failure is asked again before it is reported',
+  );
+  assert.deepEqual(broken.slept, [...TRANSIENT_RETRY_DELAYS_MS]);
+  assert.ok(
+    TRANSIENT_RETRY_DELAYS_MS.reduce((sum, ms) => sum + ms, 0) <= 15_000,
+    'the waits fit well inside the 100 s Workmate gives an auth command',
+  );
   assert.equal('error' in failed, false, 'a code must not travel as `error` — the offscreen bridge would turn the reply into a protocol failure');
 
   const noIdentity = authHarness({ silent: new AgentXCloudError('identity_unavailable_api', 'no identity') });
@@ -1829,6 +1842,97 @@ test('auth_hint answers login_required calmly and holds off for a minute; other 
   assert.equal(unsupported.ok, false);
   assert.equal(unsupported.outcome, 'unsupported');
   assert.equal(unsupported.code, 'identity_unavailable_api');
+});
+
+test('auth_hint rides out a network blip at login or wake, and only a blip', async () => {
+  const { AgentXCloudError } = await import(pathToFileURL(SERVICE_PATH).href);
+  let attempts = 0;
+  const blip = authHarness({
+    silent: () => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw new AgentXCloudError('network_unavailable', 'Không kết nối được dịch vụ.', { transient: true, detail: 'Failed to fetch' });
+      }
+      return {
+        session: { user: { subject: 'user-123', email: 'kien@example.test' } },
+        credential: credential(),
+      };
+    },
+  });
+  const outcome = await blip.auth.hint({ loginHint: 'kien@example.test' });
+  assert.equal(outcome.ok, true);
+  assert.equal(outcome.outcome, 'signed-in', 'the second try, once the network is up, signs the browser in');
+  assert.deepEqual(blip.slept, [TRANSIENT_RETRY_DELAYS_MS[0]]);
+  assert.equal(blip.providerState.active, 'webbrain_cloud');
+
+  // Answers are never asked again: no session here, a refused sign-in, a license refusal.
+  for (const error of [
+    new AgentXCloudError('login_required', 'no session'),
+    new AgentXCloudError('access_denied', 'refused'),
+    new AgentXCloudError('license_expired', 'read-only', { status: 403 }),
+  ]) {
+    const answered = authHarness({ silent: error });
+    await answered.auth.hint({ loginHint: 'kien@example.test' });
+    assert.equal(answered.calls.filter(([kind]) => kind === 'silent').length, 1, `${error.code} is not retried`);
+    assert.deepEqual(answered.slept, []);
+  }
+});
+
+test('the sign-in gate clears "Không kết nối được dịch vụ" by itself once the browser is back online', async () => {
+  const clock = { now: NOW };
+  let online = false;
+  const server = keysServer();
+  const fetchImpl = async (url, init) => {
+    if (!online) throw new TypeError('Failed to fetch');
+    return server.fetchImpl(url, init);
+  };
+  const windowRef = fakeElement('window');
+  const harness = gateHarness({
+    seed: { [AGENTX_SESSION_STORAGE_KEY]: session({ lastActiveAt: NOW }) },
+    clock,
+    fetchImpl,
+    gateOptions: { windowRef },
+  });
+  const unlocked = harness.gate.start();
+  await until(() => harness.dom.parts.notice.textContent, 'the network error is shown');
+  assert.equal(harness.dom.parts.notice.textContent, 'Không kết nối được dịch vụ. Hãy kiểm tra mạng rồi thử lại.');
+  assert.equal(harness.gate.isLocked(), true);
+
+  // Wi-Fi joins: no click needed.
+  online = true;
+  windowRef.emit('online');
+  await settles(unlocked, 'the panel unlocks once the service answers');
+  assert.equal(harness.gate.isLocked(), false);
+  assert.equal(harness.providerState.active, 'webbrain_cloud');
+  assert.equal(server.count(MODEL_KEY_URL), 1);
+
+  // Online again later, with nothing wrong: nothing is asked.
+  windowRef.emit('online');
+  await flushMicrotasks();
+  assert.equal(server.count(MODEL_KEY_URL), 1);
+  harness.gate.stop();
+  assert.equal((windowRef.listeners.online || []).length, 0, 'stop() removes the listener');
+});
+
+test('back online does not retry what the service refused', async () => {
+  const clock = { now: NOW };
+  const server = keysServer({
+    modelKey: () => jsonResponse({ error: 'device_revoked', detail: 'revoked' }, 403),
+  });
+  const windowRef = fakeElement('window');
+  const harness = gateHarness({
+    seed: { [AGENTX_SESSION_STORAGE_KEY]: session({ lastActiveAt: NOW }) },
+    clock,
+    fetchImpl: server.fetchImpl,
+    gateOptions: { windowRef },
+  });
+  void harness.gate.start();
+  await until(() => harness.dom.parts.notice.textContent, 'the refusal is shown');
+  const asked = server.count(MODEL_KEY_URL);
+  windowRef.emit('online');
+  await flushMicrotasks();
+  assert.equal(server.count(MODEL_KEY_URL), asked, 'a refusal is an answer, not a network blip');
+  harness.gate.stop();
 });
 
 test('auth_open starts the interactive sign-in with the hint, answers at once, and installs the key when it ends', async () => {

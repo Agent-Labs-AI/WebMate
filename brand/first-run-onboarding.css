@@ -92,10 +92,16 @@ body {
   height: 2rem;
 }
 
+/* The AgentX mark carries its own dark plate: it takes the tile's place
+   instead of sitting inside it (the other steps keep their tinted tiles). */
+.ob-icon:has(> .ob-brand-logo) {
+  border: 0;
+  background: none;
+}
+
 .ob-brand-logo {
-  width: 3rem;
-  height: 3rem;
-  border-radius: var(--fr-ob-radius-sm);
+  width: 100%;
+  height: 100%;
 }
 
 .ob-icon-warn {

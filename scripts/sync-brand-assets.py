@@ -11,6 +11,9 @@ PNG_TARGETS = {
     "brand/icons/icon16.png": 16,
     "brand/icons/icon48.png": 48,
     "brand/icons/icon128.png": 128,
+    # The AgentX Cloud provider (id kept as upstream's `webbrain_cloud`): its
+    # card in Settings and the model chip in the panel show this mark.
+    "brand/icons/providers/webbrain_cloud.png": 64,
 }
 ICO_TARGETS = []
 SVG_TARGETS = []

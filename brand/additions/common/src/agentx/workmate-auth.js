@@ -38,6 +38,15 @@ import { AgentXCloudError, createAgentXCloudService } from './cloud-service.js';
 import { installCloudCredential } from './cloud-provider-install.js';
 
 export const LOGIN_REQUIRED_HOLDOFF_MS = 60_000;
+/**
+ * Waits before asking again after a failure the network caused (no answer, a
+ * timeout, an authorize page that would not load). Workmate sends the hint the
+ * moment a browser says hello — at login or wake, often before the network is
+ * up — and then waits out a ten-minute cooldown, so one blip would otherwise
+ * leave the person on "Đăng nhập để bắt đầu". Short enough to fit well inside
+ * the time Workmate waits for the answer.
+ */
+export const TRANSIENT_RETRY_DELAYS_MS = Object.freeze([2_000, 5_000]);
 
 function sameEmail(left, right) {
   const a = String(left || '').trim().toLowerCase();
@@ -53,6 +62,8 @@ export function createWorkmateAuth({
   serviceOptions = {},
   now = () => Date.now(),
   holdoffMs = LOGIN_REQUIRED_HOLDOFF_MS,
+  retryDelaysMs = TRANSIENT_RETRY_DELAYS_MS,
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 } = {}) {
   if (typeof sendToBackground !== 'function') {
     throw new TypeError('sendToBackground is required');
@@ -121,6 +132,23 @@ export function createWorkmateAuth({
     return inFlight;
   }
 
+  /**
+   * The silent sign-in, asked again (TRANSIENT_RETRY_DELAYS_MS) while the
+   * failure is one the network caused. Any answer — a session, "no session
+   * here", a refusal — ends it at once.
+   */
+  async function silentSignInRidingOutBlips(loginHint) {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await getService().silentSignInAndProvision({ loginHint });
+      } catch (error) {
+        const transient = error instanceof AgentXCloudError && error.transient === true;
+        if (!transient || attempt >= retryDelaysMs.length) throw error;
+        await sleep(retryDelaysMs[attempt]);
+      }
+    }
+  }
+
   function hint(msg = {}) {
     const loginHint = String(msg.loginHint || '').trim();
     return runExclusive(async () => {
@@ -130,7 +158,7 @@ export function createWorkmateAuth({
         return { ok: true, outcome: 'login-required', signedIn: false, heldOff: true, retryAt: holdoff.until };
       }
       try {
-        const result = await getService().silentSignInAndProvision({ loginHint });
+        const result = await silentSignInRidingOutBlips(loginHint);
         await installCloudCredential(sendToBackground, result.credential);
         return {
           ok: true,

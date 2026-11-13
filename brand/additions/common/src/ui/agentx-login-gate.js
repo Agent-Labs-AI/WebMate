@@ -128,6 +128,11 @@ function copy(locale, key, params = {}) {
   return value;
 }
 
+/** No answer from the service, or none in time: the network, not a refusal. */
+function isUnreachable(error) {
+  return ['network_unavailable', 'request_timeout'].includes(String(error?.code || ''));
+}
+
 function errorMessage(error, locale) {
   if (!error) return '';
   const code = String(error.code || '');
@@ -162,6 +167,7 @@ export function createAgentXLoginGate({
   config = AGENTX_RUNTIME_CONFIG,
   serviceOptions = {},
   documentRef = globalThis.document,
+  windowRef = documentRef?.defaultView || null,
   restoreTimeoutMs = RESTORE_ATTEMPT_TIMEOUT_MS,
   backgroundCallTimeoutMs = BACKGROUND_CALL_TIMEOUT_MS,
   licenseGraceMs = LICENSE_UNLOCK_GRACE_MS,
@@ -203,6 +209,9 @@ export function createAgentXLoginGate({
   let resolveUnlocked = () => {};
   let busyAction = '';
   let notice = '';
+  // The notice on screen says the service could not be reached (no answer, or
+  // none in time). Only then does the browser coming back online retry.
+  let unreachable = false;
   let watching = false;
   let watchingStorage = false;
   let pollTimer = null;
@@ -525,6 +534,7 @@ export function createAgentXLoginGate({
     const attempt = ++attemptSeq;
     mode = 'auth';
     busyAction = 'checking';
+    unreachable = false;
     // The reason survives the status re-read: whatever cleared the session has
     // already done so, so the second read reports a plain "needs login" and
     // would otherwise wipe the explanation the user needs to see.
@@ -588,6 +598,7 @@ export function createAgentXLoginGate({
       }
       busyAction = '';
       notice = errorMessage(error, locale());
+      unreachable = isUnreachable(error);
       render();
     } finally {
       clearTimer(deadlineId);
@@ -601,6 +612,7 @@ export function createAgentXLoginGate({
     mode = 'auth';
     busyAction = 'signingIn';
     notice = '';
+    unreachable = false;
     render();
     // The interactive window already self-limits at authTimeoutMs; the margin
     // covers the provisioning tail. This only catches true hangs — awaits
@@ -626,6 +638,7 @@ export function createAgentXLoginGate({
       }
       busyAction = '';
       notice = errorMessage(error, locale());
+      unreachable = isUnreachable(error);
       render();
     } finally {
       clearTimer(deadlineId);
@@ -786,6 +799,21 @@ export function createAgentXLoginGate({
     });
   }
 
+  /**
+   * "Không kết nối được dịch vụ" goes away by itself once the browser is back
+   * online: a panel opened (or a sign-in clicked) while Wi-Fi was still
+   * joining would otherwise keep the error until someone clicked again.
+   */
+  function watchConnectivity() {
+    if (typeof windowRef?.addEventListener !== 'function') return;
+    const onOnline = () => {
+      if (!locked || mode !== 'auth' || busyAction || !unreachable) return;
+      void restore();
+    };
+    windowRef.addEventListener('online', onOnline);
+    teardown.push(() => windowRef.removeEventListener('online', onOnline));
+  }
+
   elements.button?.addEventListener('click', () => {
     void (mode === 'license' ? recheckLicense() : signIn());
   });
@@ -803,6 +831,7 @@ export function createAgentXLoginGate({
       lock();
       render();
       watchStorage();
+      watchConnectivity();
       void restore();
       return unlocked;
     },
