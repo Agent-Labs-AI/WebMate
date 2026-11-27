@@ -1,17 +1,17 @@
 {
   "schema": 1,
-  "version": "1.0.14",
-  "publishedAt": "2026-11-01T16:03:07.140Z",
+  "version": "1.0.15",
+  "publishedAt": "2026-11-27T14:34:55.715Z",
   "chrome": {
-    "url": "https://github.com/astralxkienlt/agentx-webmate/releases/download/v1.0.14/agentx-webmate-chrome-1.0.14.zip",
-    "sha256": "031cd33e78a955fb3c190689025ae4ef2dddb1694989302b77ff49add45bd2fa",
-    "bytes": 5210636
+    "url": "https://github.com/Agent-Labs-AI/WebMate/releases/download/v1.0.15/agentx-webmate-chrome-1.0.15.zip",
+    "sha256": "0506a43091251b85c512d6d7d2d37bbec0ddf3f2af901a92cbaa843095a69343",
+    "bytes": 5226264
   },
   "minWorkmate": "0.21.0",
   "minProtocol": 3,
   "notes": {
-    "vi": "### Changed\n- fix(gateway): the AgentX AI Gateway moved to aigw.astralx.com.vn\n- docs(telemetry): close the error-code table before the next paragraph\n- fix(telemetry): send what failed, and only what failed",
-    "en": "### Changed\n- fix(gateway): the AgentX AI Gateway moved to aigw.astralx.com.vn\n- docs(telemetry): close the error-code table before the next paragraph\n- fix(telemetry): send what failed, and only what failed"
+    "vi": "### Changed\n- chore(brand): point repo links and release feed at Agent-Labs-AI/WebMate\n- fix(brand,auth): Workmate logo everywhere; sign-in rides out network blips\n- fix(brand): align WebMate browser icons with Workmate logo\n- feat(errors): a failed run says what happened in plain words, in the panel's language",
+    "en": "### Changed\n- chore(brand): point repo links and release feed at Agent-Labs-AI/WebMate\n- fix(brand,auth): Workmate logo everywhere; sign-in rides out network blips\n- fix(brand): align WebMate browser icons with Workmate logo\n- feat(errors): a failed run says what happened in plain words, in the panel's language"
   },
-  "signature": "ed25519:9ZAhXKgdJR9pOkjdiqjQU9RnGTb16QDDOj80qB0wyhx5a1DhCvdj/YDOMhzkNIbTSHQK4ed+rtaSJKuCXmTjAQ=="
+  "signature": "ed25519:yMsknKYXn+6SkuIZQ+j10jpRP1NFDevQcQsuI2jKqQh0hfdJ4HHG8BdV/PWz6rqNFWeYQnJ1kZu9SBa4zA0ZBw=="
 }
