@@ -1,6 +1,6 @@
 # AgentX WebMate MCP Server
 
-Give [AgentX Workmate](https://github.com/TrungKiencding/AgentX-Workmate) — or any other MCP client (Claude Code, Codex, Cursor) — the ability to run tasks in **your real browser session**: already signed in, cookies present, MFA already passed.
+Give [AgentX Workmate](https://github.com/Agent-Labs-AI/Workmate) — or any other MCP client (Claude Code, Codex, Cursor) — the ability to run tasks in **your real browser session**: already signed in, cookies present, MFA already passed.
 
 That session is the whole point. A headless automation framework starts logged out of everything and hits a login wall on the first useful page. AgentX WebMate is already inside the browser you use.
 

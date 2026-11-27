@@ -188,7 +188,7 @@ that does not match `product.extensionId` fails `npm run brand:build`.
 
 ```json
 { "schema": 1, "version": "1.0.4", "publishedAt": "<ISO>",
-  "chrome": { "url": "https://github.com/astralxkienlt/agentx-webmate/releases/download/v1.0.4/agentx-webmate-chrome-1.0.4.zip",
+  "chrome": { "url": "https://github.com/Agent-Labs-AI/WebMate/releases/download/v1.0.4/agentx-webmate-chrome-1.0.4.zip",
               "sha256": "<hex>", "bytes": 5230000 },
   "minWorkmate": "0.21.0", "minProtocol": 3,
   "notes": { "vi": "…", "en": "…" },
@@ -205,7 +205,7 @@ The signature covers the canonical JSON (sorted keys, no whitespace) of every
 field except `signature`. Both release workflows commit the signed file to
 `dist/release.json` and `release.json` at the repository root, and attach it to
 the GitHub Release; Workmate polls
-`https://raw.githubusercontent.com/astralxkienlt/agentx-webmate/main/release.json`.
+`https://raw.githubusercontent.com/Agent-Labs-AI/WebMate/main/release.json`.
 
 Workmate installs a release only when the sha256 matches the zip and the
 signature verifies. There is no "install anyway" button.

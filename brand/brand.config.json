@@ -4,7 +4,7 @@
     "shortName": "WebMate",
     "slug": "agentx-webmate",
     "description": "AI browser agent — chat with pages, automate tasks, multi-provider LLM support.",
-    "homepage": "https://github.com/astralxkienlt/agentx-webmate",
+    "homepage": "https://github.com/Agent-Labs-AI/WebMate",
     "firefoxId": "agentx-webmate@example.com",
     "_extensionId_why": "Fixed Chrome/Edge extension ID, derived from manifestOverrides.chrome.key (SHA-256 of the SPKI public key, first 16 bytes, a-p). Workmate reads extensions.settings[<this id>] in the browser profile to know whether WebMate is installed; scripts/brand-build.mjs fails the build if the two ever disagree. The private half lives outside the repo (~/.agentx/webmate-keys/manifest-key.pem).",
     "extensionId": "pfadeibckkgklmmjghiikadphihbpape"
@@ -113,7 +113,7 @@
     {
       "_why": "Send reviews and feedback to the AgentX WebMate repository until store listings are available.",
       "regex": "https://(?:chromewebstore\\.google\\.com/detail/webbrain/ljhijonmfahplgbbacgcfnaihbjljhhb|addons\\.mozilla\\.org/en-US/firefox/addon/webbrain/)",
-      "to": "https://github.com/astralxkienlt/agentx-webmate",
+      "to": "https://github.com/Agent-Labs-AI/WebMate",
       "only": ["src/ui/store-review-prompt.js"]
     },
     {
@@ -125,19 +125,19 @@
     {
       "_why": "Send feedback to the AgentX WebMate issue tracker.",
       "from": "https://github.com/webbrain-one/webbrain/issues/new",
-      "to": "https://github.com/astralxkienlt/agentx-webmate/issues/new",
+      "to": "https://github.com/Agent-Labs-AI/WebMate/issues/new",
       "only": ["src/ui/store-review-prompt.js"]
     },
     {
       "_why": "Point the in-app documentation link to AgentX WebMate documentation.",
       "from": "https://webbrain.one/docs",
-      "to": "https://github.com/astralxkienlt/agentx-webmate/tree/main/docs",
+      "to": "https://github.com/Agent-Labs-AI/WebMate/tree/main/docs",
       "only": ["src/ui/settings.html"]
     },
     {
       "_why": "Avoid promoting the upstream brand in localized social-share copy.",
       "regex": "https://webbrain\\.one(?=['\"])",
-      "to": "https://github.com/astralxkienlt/agentx-webmate",
+      "to": "https://github.com/Agent-Labs-AI/WebMate",
       "only": ["src/ui/locales/**"]
     },
     {
@@ -368,7 +368,7 @@
     "installDirName": "AgentX WebMate",
     "minWorkmate": "0.21.0",
     "minProtocol": 3,
-    "releaseFeedUrl": "https://raw.githubusercontent.com/astralxkienlt/agentx-webmate/main/release.json",
+    "releaseFeedUrl": "https://raw.githubusercontent.com/Agent-Labs-AI/WebMate/main/release.json",
     "releasePublicKeyFile": "scripts/release-signing-key.pub.pem"
   },
 

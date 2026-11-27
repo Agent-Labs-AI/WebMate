@@ -135,7 +135,7 @@ push bằng token mặc định sẽ bị từ chối ở đúng bước cuối 
 Nếu PAT hết hạn, workflow fail ngay ở bước *Kiểm tra token* với hướng dẫn tạo lại:
 ```bash
 gh auth refresh -h github.com -s workflow
-gh secret set MIRROR_TOKEN --repo astralxkienlt/agentx-webmate --body "$(gh auth token)"
+gh secret set MIRROR_TOKEN --repo Agent-Labs-AI/WebMate --body "$(gh auth token)"
 ```
 
 6 workflow của upstream đã bị **tắt** trong mirror (tắt qua API, không xoá file — nên không tạo

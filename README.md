@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/TrungKiencding/agentx-webmate">Repository</a> ·
-  <a href="https://github.com/TrungKiencding/agentx-webmate/issues">Báo lỗi</a> ·
+  <a href="https://github.com/Agent-Labs-AI/WebMate">Repository</a> ·
+  <a href="https://github.com/Agent-Labs-AI/WebMate/issues">Báo lỗi</a> ·
   <a href="docs/">Tài liệu</a> ·
   <a href="LICENSE">Giấy phép</a>
 </p>
@@ -36,7 +36,7 @@ Tiện ích làm việc trong trình duyệt bạn đang sử dụng, với phi�
 Cần Git, Node.js và npm. Sử dụng **Node.js 20 trở lên** nếu bạn chạy MCP server.
 
 ```bash
-git clone https://github.com/TrungKiencding/agentx-webmate.git
+git clone https://github.com/Agent-Labs-AI/WebMate.git
 cd agentx-webmate
 npm ci
 npm run brand:build
@@ -226,7 +226,7 @@ Sau khi build lại, tải lại tiện ích trên trang quản lý extension. C
 
 ## Đóng góp và hỗ trợ
 
-Gửi lỗi và đề xuất tại [GitHub Issues](https://github.com/TrungKiencding/agentx-webmate/issues). Khi báo lỗi, ghi rõ trình duyệt, phiên bản tiện ích, nhà cung cấp mô hình và các bước tái hiện; loại bỏ khóa API và dữ liệu riêng tư khỏi log hoặc ảnh đính kèm.
+Gửi lỗi và đề xuất tại [GitHub Issues](https://github.com/Agent-Labs-AI/WebMate/issues). Khi báo lỗi, ghi rõ trình duyệt, phiên bản tiện ích, nhà cung cấp mô hình và các bước tái hiện; loại bỏ khóa API và dữ liệu riêng tư khỏi log hoặc ảnh đính kèm.
 
 Xem [CONTRIBUTING.md](CONTRIBUTING.md) trước khi đóng góp và [CHANGELOG.md](CHANGELOG.md) để theo dõi thay đổi.
 

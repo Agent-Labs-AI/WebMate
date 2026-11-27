@@ -140,8 +140,8 @@ test('release notes come from the matching CHANGELOG section only', () => {
 
 test('release asset URLs follow the GitHub release layout', () => {
   assert.equal(
-    releaseAssetUrl('https://github.com/astralxkienlt/agentx-webmate/', '1.0.4', 'agentx-webmate-chrome-1.0.4.zip'),
-    'https://github.com/astralxkienlt/agentx-webmate/releases/download/v1.0.4/agentx-webmate-chrome-1.0.4.zip',
+    releaseAssetUrl('https://github.com/Agent-Labs-AI/WebMate/', '1.0.4', 'agentx-webmate-chrome-1.0.4.zip'),
+    'https://github.com/Agent-Labs-AI/WebMate/releases/download/v1.0.4/agentx-webmate-chrome-1.0.4.zip',
   );
   assert.throws(() => releaseAssetUrl('https://example.com/x', '1.0.4', 'a.zip'), /GitHub repository URL/);
 });
@@ -161,7 +161,7 @@ test('a manifest signed with a temporary key verifies, and any tampering breaks 
     version: '1.0.4',
     publishedAt: '2026-09-09T00:00:00.000Z',
     chrome: { fileName: 'agentx-webmate-chrome-1.0.4.zip', sha256: sha256Hex(Buffer.from('zip bytes')), bytes: 9 },
-    homepage: 'https://github.com/astralxkienlt/agentx-webmate',
+    homepage: 'https://github.com/Agent-Labs-AI/WebMate',
     minWorkmate: '0.21.0',
     minProtocol: 3,
     notes: { en: 'Workmate install', vi: 'Cài từ Workmate' },
@@ -180,7 +180,7 @@ test('a manifest signed with a temporary key verifies, and any tampering breaks 
 
   for (const tamper of [
     (m) => { m.chrome.sha256 = sha256Hex(Buffer.from('other zip')); },
-    (m) => { m.chrome.url = m.chrome.url.replace('astralxkienlt', 'attacker'); },
+    (m) => { m.chrome.url = m.chrome.url.replace('Agent-Labs-AI', 'attacker'); },
     (m) => { m.version = '1.0.5'; },
     (m) => { m.minWorkmate = '0.0.1'; },
     (m) => { m.signature = 'ed25519:' + Buffer.alloc(64).toString('base64'); },
@@ -207,7 +207,7 @@ test('build-zip derives the feed from the Chrome zip, brand config and changelog
       changelog: '## [1.0.4] - 2026-09-09\n\n### Added\n- Cài từ Workmate\n\n## [1.0.3] - x\n- old',
       publishedAt: '2026-09-09T00:00:00.000Z',
     });
-    assert.equal(manifest.chrome.url, 'https://github.com/astralxkienlt/agentx-webmate/releases/download/v1.0.4/agentx-webmate-chrome-1.0.4.zip');
+    assert.equal(manifest.chrome.url, 'https://github.com/Agent-Labs-AI/WebMate/releases/download/v1.0.4/agentx-webmate-chrome-1.0.4.zip');
     assert.equal(manifest.chrome.sha256, sha256Hex(Buffer.from('PK fake zip payload')));
     assert.equal(manifest.chrome.bytes, 'PK fake zip payload'.length);
     assert.equal(manifest.minWorkmate, brandConfig.workmate.minWorkmate);
@@ -236,7 +236,7 @@ test('the sign-release CLI refuses a key that is not the committed public key, a
       version: '1.0.4',
       publishedAt: '2026-09-09T00:00:00.000Z',
       chrome: { fileName: 'agentx-webmate-chrome-1.0.4.zip', sha256: sha256Hex(Buffer.from('z')), bytes: 1 },
-      homepage: 'https://github.com/astralxkienlt/agentx-webmate',
+      homepage: 'https://github.com/Agent-Labs-AI/WebMate',
       minWorkmate: '0.21.0',
       minProtocol: 3,
       notes: { en: 'x' },
@@ -277,7 +277,7 @@ test('the committed release public key is an Ed25519 SPKI PEM that Workmate can 
     version: '1.0.4',
     publishedAt: '2026-09-09T00:00:00.000Z',
     chrome: { fileName: 'a.zip', sha256: sha256Hex(Buffer.from('a')), bytes: 1 },
-    homepage: 'https://github.com/astralxkienlt/agentx-webmate',
+    homepage: 'https://github.com/Agent-Labs-AI/WebMate',
     minWorkmate: '0.21.0',
     minProtocol: 3,
     notes: { en: 'x' },
